@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sales Performance Dashboard</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            background: linear-gradient(135deg, #2c3e50, #34495e);
+            color: white;
+        }
+        .container {
+            width: 90%;
+            margin: auto;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            backdrop-filter: blur(10px);
+        }
+        .chart {
+            width: 100%;
+            height: 400px;
+            margin-bottom: 20px;
+        }
+        .filter-container {
+            margin-bottom: 20px;
+        }
+        select, input[type="file"] {
+            margin: 5px;
+            padding: 10px;
+            border-radius: 5px;
+            border: none;
+            background: rgba(255, 255, 255, 0.8);
+            color: black;
+            font-size: 16px;
+        }
+        select:focus, input[type="file"]:focus {
+            outline: none;
+            background: rgba(255, 255, 255, 1);
+        }
+        .upload-links {
+            margin-bottom: 20px;
+        }
+        .upload-links a {
+            margin: 5px;
+            padding: 10px;
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.8);
+            color: black;
+            text-decoration: none;
+            font-size: 16px;
+        }
+        .upload-links a:hover {
+            background: rgba(255, 255, 255, 1);
+        }
+    </style>
+</head>
+<body>
+    <h2>Sales Performance Dashboard</h2>
+    <div class="upload-links">
+        <a href="#" onclick="document.getElementById('jsonFileInput').click()">Upload JSON</a>
+        <a href="#" onclick="document.getElementById('csvFileInput').click()">Upload CSV</a>
+        <a href="#" onclick="document.getElementById('excelFileInput').click()">Upload Excel</a>
+        <a href="#" onclick="document.getElementById('pdfFileInput').click()">Upload PDF</a>
+    </div>
+    <input type="file" id="jsonFileInput" accept=".json" style="display: none;" onchange="handleFile(event)">
+    <input type="file" id="csvFileInput" accept=".csv" style="display: none;" onchange="handleFile(event)">
+    <input type="file" id="excelFileInput" accept=".xlsx, .xls" style="display: none;" onchange="handleFile(event)">
+    <input type="file" id="pdfFileInput" accept=".pdf" style="display: none;" onchange="handleFile(event)">
+    <div class="filter-container">
+        <select id="regionFilter">
+            <option value="all">All Regions</option>
+        </select>
+        <select id="productFilter">
+            <option value="all">All Products</option>
+        </select>
+    </div>
+    <div class="container">
+        <div id="lineChart" class="chart"></div>
+        <div id="barChart" class="chart"></div>
+        <div id="geoMap" class="chart"></div>
+        <div id="tableChart" class="chart"></div>
+        <div id="pieChart" class="chart"></div>
+        <div id="heatMap" class="chart"></div>
+    </div>
+    <script>
+        let globalData = [];
+
+        // Function to populate filters dynamically
+        function populateFilters(data) {
+            const regions = [...new Set(data.map(order => order.COUNTRY))];
+            const products = [...new Set(data.map(order => order.PRODUCTLINE))];
+
+            const regionFilter = document.getElementById('regionFilter');
+            const productFilter = document.getElementById('productFilter');
+
+            // Clear existing options
+            regionFilter.innerHTML = '<option value="all">All Regions</option>';
+            productFilter.innerHTML = '<option value="all">All Products</option>';
+
+            // Populate regions
+            regions.forEach(region => {
+                const option = document.createElement('option');
+                option.value = region;
+                option.textContent = region;
+                regionFilter.appendChild(option);
+            });
+
+            // Populate products
+            products.forEach(product => {
+                const option = document.createElement('option');
+                option.value = product;
+                option.textContent = product;
+                productFilter.appendChild(option);
+            });
+        }
+
+        // Function to update charts based on filters
+        function updateFilters() {
+            const selectedRegion = document.getElementById('regionFilter').value;
+            const selectedProduct = document.getElementById('productFilter').value;
+
+            const filteredData = globalData.filter(order =>
+                (selectedRegion === "all" || order.COUNTRY === selectedRegion) &&
+                (selectedProduct === "all" || order.PRODUCTLINE === selectedProduct)
+            );
+
+            updateCharts(filteredData);
+        }
+
+        // Function to handle file upload
+        function handleFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                try {
+                    if (file.name.endsWith('.json')) {
+                        globalData = JSON.parse(e.target.result);
+                    } else if (file.name.endsWith('.csv')) {
+                        Papa.parse(e.target.result, {
+                            header: true,
+                            dynamicTyping: true,
+                            complete: function (results) {
+                                globalData = results.data;
+                            }
+                        });
+                    } else if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+                        const workbook = XLSX.read(e.target.result, { type: 'binary' });
+                        const sheetName = workbook.SheetNames[0];
+                        globalData = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+                    } else if (file.name.endsWith('.pdf')) {
+                        alert("PDF parsing is not fully supported in this example. Please use JSON, CSV, or Excel files.");
+                        return;
+                    } else {
+                        alert("Unsupported file format. Please upload a JSON, CSV, Excel, or PDF file.");
+                        return;
+                    }
+
+                    // Populate filters and generate dashboard
+                    populateFilters(globalData);
+                    generateDashboard(globalData);
+                } catch (error) {
+                    alert("Error parsing file. Please ensure the file is valid.");
+                }
+            };
+
+            if (file.name.endsWith('.pdf')) {
+                alert("PDF parsing is not fully supported in this example. Please use JSON, CSV, or Excel files.");
+                return;
+            }
+
+            if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+                reader.readAsBinaryString(file);
+            } else {
+                reader.readAsText(file);
+            }
+        }
+
+        // Function to generate dashboard
+        function generateDashboard(data) {
+            if (data.length === 0) return;
+            updateCharts(data);
+        }
+
+        // Function to update all charts
+        function updateCharts(data) {
+            const salesByDate = {};
+            const salesByRegion = {};
+            const orderStatusCount = {};
+
+            data.forEach(order => {
+                const date = order.ORDERDATE.split(' ')[0];
+                salesByDate[date] = (salesByDate[date] || 0) + parseFloat(order.SALES || 0);
+                salesByRegion[order.COUNTRY] = (salesByRegion[order.COUNTRY] || 0) + parseFloat(order.SALES || 0);
+                orderStatusCount[order.STATUS] = (orderStatusCount[order.STATUS] || 0) + 1;
+            });
+
+            // Line Chart: Sales Trends Over Time
+            Plotly.newPlot('lineChart', [{
+                x: Object.keys(salesByDate),
+                y: Object.values(salesByDate),
+                type: 'scatter',
+                mode: 'lines+markers'
+            }], { title: 'Sales Trends Over Time' });
+
+            // Bar Chart: Sales by Region
+            Plotly.newPlot('barChart', [{
+                x: Object.keys(salesByRegion),
+                y: Object.values(salesByRegion),
+                type: 'bar'
+            }], { title: 'Sales by Region' });
+
+            // Geo Map: Sales by Region
+            Plotly.newPlot('geoMap', [{
+                type: 'choropleth',
+                locationmode: 'country names',
+                locations: Object.keys(salesByRegion),
+                z: Object.values(salesByRegion)
+            }], { title: 'Sales by Region (Geo Map)' });
+
+            // Table Chart: Sales Table
+            Plotly.newPlot('tableChart', [{
+                type: 'table',
+                header: { values: ['Region', 'Sales'] },
+                cells: { values: [Object.keys(salesByRegion), Object.values(salesByRegion)] }
+            }], { title: 'Sales Table' });
+
+            // Pie Chart: Order Status Breakdown
+            Plotly.newPlot('pieChart', [{
+                labels: Object.keys(orderStatusCount),
+                values: Object.values(orderStatusCount),
+                type: 'pie'
+            }], { title: 'Order Status Breakdown' });
+
+            // Heatmap: High-Performing Regions
+            const regions = Object.keys(salesByRegion);
+            const heatmapZ = regions.map(region => salesByRegion[region] || 0); // Handle missing data
+
+            Plotly.newPlot('heatMap', [{
+                x: regions,
+                y: ['Sales'],
+                z: [heatmapZ],
+                type: 'heatmap',
+                colorscale: 'Viridis', // Dynamic color scaling
+                showscale: true, // Display color scale legend
+                zmin: 0, // Ensure zero values are handled
+                zmax: Math.max(...heatmapZ) || 1 // Avoid division by zero
+            }], { title: 'High-Performing Regions' });
+        }
+
+        // Event listeners for filters
+        document.getElementById('regionFilter').addEventListener('change', updateFilters);
+        document.getElementById('productFilter').addEventListener('change', updateFilters);
+    </script>
+</body>
+</html>
